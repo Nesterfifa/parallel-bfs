@@ -9,10 +9,9 @@
 
 using namespace std;
 
-template <typename T>
-std::ostream& operator <<(std::ostream& output, const std::vector<T>& data)
-{
-    for (const T& x : data)
+template<typename T>
+std::ostream &operator<<(std::ostream &output, const std::vector<T> &data) {
+    for (const T &x: data)
         output << x << " ";
     return output;
 }
@@ -26,16 +25,13 @@ void scan_up(int v, int l, int r, vector<int> &data, vector<int> &tree, int size
         tree[v] = sum;
     } else {
         int m = (l + r) / 2;
-// #pragma omp parallel sections default(none) shared(v, l, m, data, tree, size, r)
+#pragma omp task shared(tree)
         {
+            scan_up(v * 2 + 1, l, m, data, tree, size);
+        }
 #pragma omp task shared(tree)
-            {
-                scan_up(v * 2 + 1, l, m, data, tree, size);
-            }
-#pragma omp task shared(tree)
-            {
-                scan_up(v * 2 + 2, m, r, data, tree, size);
-            }
+        {
+            scan_up(v * 2 + 2, m, r, data, tree, size);
         }
 #pragma omp taskwait
         tree[v] = tree[v * 2 + 1] + tree[v * 2 + 2];
@@ -51,27 +47,25 @@ void scan_down(int v, int l, int r, int left, vector<int> &data, vector<int> &re
         }
     } else {
         int m = (l + r) / 2;
+#pragma omp task shared(res)
         {
+            scan_down(v * 2 + 1, l, m, left, data, res, tree, size);
+        }
 #pragma omp task shared(res)
-            {
-                scan_down(v * 2 + 1, l, m, left, data, res, tree, size);
-            }
-#pragma omp task shared(res)
-            {
-                scan_down(v * 2 + 2, m, r, left + tree[v * 2 + 1], data, res, tree, size);
-            }
+        {
+            scan_down(v * 2 + 2, m, r, left + tree[v * 2 + 1], data, res, tree, size);
         }
     }
 }
 
 void scan(vector<int> &data, vector<int> &res, vector<int> &tree, int size) {
-	{
-		#pragma omp single 
-		{
-		    scan_up(0, 0, size, data, tree, size);
-		    scan_down(0, 0, size, 0, data, res, tree, size);
-		}
-	}
+    {
+#pragma omp single
+        {
+            scan_up(0, 0, size, data, tree, size);
+            scan_down(0, 0, size, 0, data, res, tree, size);
+        }
+    }
 }
 
 int filter(vector<int> &data, vector<int> &res, const function<bool(int)> &p, vector<int> &mask, vector<int> &tree,
@@ -110,44 +104,45 @@ int bfs_seq(vector<vector<int> > &g, vector<int> &d) {
 
 int parallel_bfs(
         vector<vector<int> > &g,
-		vector<int> &frontier,
+        vector<int> &frontier,
         vector<int> &new_frontier,
         vector<int> &deg,
         vector<int> &mask,
         vector<int> &tree,
         vector<atomic<int> > &dist) {
     frontier[0] = 0;
-	int frontier_size = 1;
+    int frontier_size = 1;
 
 #pragma omp parallel shared(deg, frontier, new_frontier, mask, tree, dist)
-	{
-		while (true) {
-	#pragma omp for
-			for (int i = 0; i < frontier_size; i++) {
-				deg[i] = g[frontier[i]].size();
-			}
-			scan(deg, deg, tree, frontier_size);
-			if (deg[frontier_size - 1] == 0) {
-				break;
-			}
-	#pragma omp for
-			for (int i = 0; i < deg[frontier_size - 1]; i++) {
-				new_frontier[i] = -1;
-			}
-	#pragma omp for
-			for (int i = 0; i < frontier_size; i++) {
-				int v = frontier[i];
-				for (int j = 0; j < g[v].size(); j++) {
-					int u = g[v][j];
-					int expect = -1;
-					if (dist[u].compare_exchange_strong(expect, dist[v] + 1)) {
-						new_frontier[i == 0 ? j : deg[i - 1] + j] = u;
-					}
-				}
-			}
-			frontier_size = filter(new_frontier, frontier, [](int x) { return x != -1; }, mask, tree, deg[frontier_size - 1]);
-		}
-	}
+    {
+        while (true) {
+#pragma omp for
+            for (int i = 0; i < frontier_size; i++) {
+                deg[i] = g[frontier[i]].size();
+            }
+            scan(deg, deg, tree, frontier_size);
+            if (deg[frontier_size - 1] == 0) {
+                break;
+            }
+#pragma omp for
+            for (int i = 0; i < deg[frontier_size - 1]; i++) {
+                new_frontier[i] = -1;
+            }
+#pragma omp for
+            for (int i = 0; i < frontier_size; i++) {
+                int v = frontier[i];
+                for (int j = 0; j < g[v].size(); j++) {
+                    int u = g[v][j];
+                    int expect = -1;
+                    if (dist[u].compare_exchange_strong(expect, dist[v] + 1)) {
+                        new_frontier[i == 0 ? j : deg[i - 1] + j] = u;
+                    }
+                }
+            }
+            frontier_size = filter(new_frontier, frontier, [](int x) { return x != -1; }, mask, tree,
+                                   deg[frontier_size - 1]);
+        }
+    }
     return dist.back();
 }
 
@@ -188,8 +183,8 @@ bool equals(vector<int> &a, vector<atomic<int> > &b) {
 const int side = 400;
 
 void bench() {
-	omp_set_num_threads(4);
-	omp_set_dynamic(0);
+    omp_set_num_threads(4);
+    omp_set_dynamic(0);
     vector<vector<int> > g = generate_graph(side);
     cout << "constructed" << endl;
     double par_avg = 0, seq_avg = 0;
@@ -209,7 +204,7 @@ void bench() {
         vector<int> deg(1e7);
         vector<int> mask(1e7);
         vector<int> tree(4e7);
-		vector<int> frontier(1e7, -1);
+        vector<int> frontier(1e7, -1);
         vector<int> new_frontier(1e7, -1);
         start = chrono::steady_clock::now();
         int ans_par = parallel_bfs(g, frontier, new_frontier, deg, mask, tree, dist_par);
