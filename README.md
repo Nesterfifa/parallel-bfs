@@ -1,6 +1,7 @@
 $ g++ -o bfs.exe -fopenmp bfs.cpp && ./bfs.exe
 
 constructed
+
 SEQ: 20566 ms
 PAR: 14769 ms
 
